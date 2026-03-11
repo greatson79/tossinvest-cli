@@ -1,0 +1,25 @@
+{
+  "observed_at": "2026-03-11",
+  "symbol": "TSLL",
+  "stock_code": "US20220809012",
+  "market": "us",
+  "endpoint": "https://wts-cert-api.tossinvest.com/api/v1/trading/orders/calculate/order-data",
+  "requests": [
+    {
+      "stockCode": "US20220809012",
+      "market": "us",
+      "orderPrice": 0,
+      "orderVolumeRate": 1,
+      "currencyMode": "KRW",
+      "isFractional": false
+    },
+    {
+      "stockCode": "US20220809012",
+      "market": "us",
+      "orderPrice": 21134,
+      "orderVolumeRate": 1,
+      "currencyMode": "KRW",
+      "isFractional": false
+    }
+  ]
+}

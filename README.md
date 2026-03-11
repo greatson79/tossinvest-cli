@@ -1,17 +1,18 @@
 # toss-investment-cli
 
-Unofficial, read-only CLI for Toss Securities web data.
+Unofficial CLI for Toss Securities web data.
 
 ## Status
 
 This repository is in bootstrap stage. The current codebase provides:
 
 - a Go-first CLI skeleton
-- local path and session conventions
-- a placeholder auth boundary for a future Python-assisted browser login helper
-- command groups for the planned read-only surface
+- browser-assisted login and reusable session storage
+- read-only account, portfolio, orders, watchlist, and quote commands
+- reverse-engineering docs and sanitized fixtures
+- an early trading command surface stub for future work
 
-Trading is out of scope. The first release targets developer workflows only.
+Live trading is not implemented yet. The current working functionality is still read-only.
 
 ## Architecture
 
@@ -19,10 +20,10 @@ Trading is out of scope. The first release targets developer workflows only.
 - `Python`: future browser login helper and reverse-engineering utilities
 - `Rust`: optional later addition for isolated performance-sensitive workers if real need appears
 
-The design and implementation plan live in:
+Tracked design references live in:
 
-- [`docs/plans/2026-03-11-toss-investment-cli-design.md`](docs/plans/2026-03-11-toss-investment-cli-design.md)
-- [`docs/plans/2026-03-11-toss-investment-cli-implementation-plan.md`](docs/plans/2026-03-11-toss-investment-cli-implementation-plan.md)
+- [`docs/reverse-engineering/`](docs/reverse-engineering/)
+- `docs/trading/` once trading discovery begins
 
 ## Current Command Surface
 
@@ -38,11 +39,18 @@ tossctl portfolio allocation
 tossctl orders list
 tossctl watchlist list
 tossctl quote get <symbol>
+tossctl order preview
+tossctl order place
+tossctl order cancel
+tossctl order amend
+tossctl order permissions status
 tossctl export positions --format csv
 tossctl export orders --format json
 ```
 
 `auth login`, `auth import-playwright-state`, `auth status`, `auth logout`, `quote get <symbol>`, `account list`, `account summary`, `orders list`, `portfolio positions`, `portfolio allocation`, and `watchlist list` work today.
+
+`order` commands are present as stubs only. They define the future trading surface but do not execute mutations yet.
 
 `auth status` performs a live validation check when a stored session exists. Authenticated commands return a re-login prompt when the stored session is missing or rejected.
 
@@ -79,7 +87,7 @@ cd auth-helper && python3 -m pip install -e . && python3 -m playwright install c
 
 ## Safety Boundary
 
-This project is intended to stay read-only. The future client layer will enforce an allowlist of read-only endpoints and reject unknown or mutating paths by default.
+Today the project is read-only in practice. Trading design is underway, but any future mutation flow will stay gated behind explicit danger approvals and separate internal modules.
 
 ## Warning
 
