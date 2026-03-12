@@ -230,11 +230,22 @@ func (c *Client) AmendPendingOrder(ctx context.Context, intent orderintent.Amend
 		return tradingflow.MutationResult{}, err
 	}
 
-	if err := c.postRawJSON(ctx, fmt.Sprintf("%s/api/v2/wts/trading/order/correct/prepare/%s/%s", c.certBaseURL, order.OrderedDate, order.OrderNo), bodyPrepare); err != nil {
+	var prepare mutationEnvelope[cancelPrepareResult]
+	if err := c.postTradingJSON(ctx, fmt.Sprintf("%s/api/v2/wts/trading/order/correct/prepare/%s/%s", c.certBaseURL, order.OrderedDate, order.OrderNo), bodyPrepare, &prepare); err != nil {
 		return tradingflow.MutationResult{}, err
 	}
-	if err := c.postRawJSON(ctx, fmt.Sprintf("%s/api/v2/wts/trading/order/correct/%s/%s", c.certBaseURL, order.OrderedDate, order.OrderNo), bodyCorrect); err != nil {
+	if prepare.Result.AuthRequired.Required {
+		return tradingflow.MutationResult{}, tradingflow.ErrInteractiveAuthRequired
+	}
+
+	var correct mutationEnvelope[cancelResult]
+	if err := c.postTradingJSON(ctx, fmt.Sprintf("%s/api/v2/wts/trading/order/correct/%s/%s", c.certBaseURL, order.OrderedDate, order.OrderNo), bodyCorrect, &correct); err != nil {
 		return tradingflow.MutationResult{}, err
+	}
+	if strings.TrimSpace(correct.Result.UUID) != "" &&
+		strings.TrimSpace(correct.Result.Modulus) != "" &&
+		strings.TrimSpace(correct.Result.Exponent) != "" {
+		return tradingflow.MutationResult{}, tradingflow.ErrInteractiveAuthRequired
 	}
 
 	return c.reconcileAmendedOrder(ctx, intent.OrderID, order.StockCode, info.Symbol, expectedPriceKRW, expectedQty, startedAt)

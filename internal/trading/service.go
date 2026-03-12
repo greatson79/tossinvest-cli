@@ -164,6 +164,9 @@ func (s *Service) Amend(ctx context.Context, intent orderintent.AmendIntent, opt
 	if s.broker == nil {
 		return MutationResult{}, ErrLiveMutationPending
 	}
+	if _, err := s.broker.GetOrderAvailableActions(ctx, intent.OrderID); err != nil {
+		return MutationResult{}, err
+	}
 	return s.broker.AmendPendingOrder(ctx, intent)
 }
 

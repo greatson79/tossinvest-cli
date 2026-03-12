@@ -374,3 +374,150 @@ func TestPlacePendingOrderReturnsFilledCompletedFromHistory(t *testing.T) {
 		t.Fatalf("expected filled quantity 1, got %v", result.FilledQuantity)
 	}
 }
+
+func TestAmendPendingOrderReturnsInteractiveAuthRequiredFromPrepare(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/trading/orders/histories/all/pending":
+			_, _ = w.Write([]byte(`{"result":[{"stockCode":"US20220809012","orderedDate":"2026-03-11","orderNo":13,"tradeType":"buy","orderPrice":600,"orderUsdPrice":0.4074,"quantity":1,"pendingQuantity":1,"orderPriceTypeCode":"00","isFractionalOrder":false,"isAfterMarketOrder":false,"status":"체결대기"}]}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/correct/prepare/2026-03-11/13":
+			_, _ = w.Write([]byte(`{"result":{"delayCancelExchange":false,"orderKey":"trade::session::test::correct","authRequired":{"required":true,"simpleTrade":false,"verifier":{"type":"interactive"}}}}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	price := 700.0
+	intent, err := orderintent.NormalizeAmend("13", nil, &price)
+	if err != nil {
+		t.Fatalf("NormalizeAmend returned error: %v", err)
+	}
+
+	_, err = client.AmendPendingOrder(context.Background(), intent)
+	if err != tradingflow.ErrInteractiveAuthRequired {
+		t.Fatalf("expected ErrInteractiveAuthRequired, got %v", err)
+	}
+}
+
+func TestAmendPendingOrderReturnsInteractiveAuthRequiredFromCorrect(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/trading/orders/histories/all/pending":
+			_, _ = w.Write([]byte(`{"result":[{"stockCode":"US20220809012","orderedDate":"2026-03-11","orderNo":13,"tradeType":"buy","orderPrice":600,"orderUsdPrice":0.4074,"quantity":1,"pendingQuantity":1,"orderPriceTypeCode":"00","isFractionalOrder":false,"isAfterMarketOrder":false,"status":"체결대기"}]}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/correct/prepare/2026-03-11/13":
+			_, _ = w.Write([]byte(`{"result":{"delayCancelExchange":false,"orderKey":"trade::session::test::correct","authRequired":{"required":false,"simpleTrade":true,"verifier":null}}}`))
+		case "/api/v2/wts/trading/order/correct/2026-03-11/13":
+			_, _ = w.Write([]byte(`{"result":{"uuid":"challenge","modulus":"abc","exponent":"10001","keyboard":"<svg/>"}}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	price := 700.0
+	intent, err := orderintent.NormalizeAmend("13", nil, &price)
+	if err != nil {
+		t.Fatalf("NormalizeAmend returned error: %v", err)
+	}
+
+	_, err = client.AmendPendingOrder(context.Background(), intent)
+	if err != tradingflow.ErrInteractiveAuthRequired {
+		t.Fatalf("expected ErrInteractiveAuthRequired, got %v", err)
+	}
+}
+
+func TestAmendPendingOrderReturnsCompletedOrderFromHistory(t *testing.T) {
+	t.Parallel()
+
+	today := time.Now().Format("2006-01-02")
+	now := time.Now().Format("2006-01-02 15:04:05.000")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v1/trading/orders/histories/all/pending":
+			_, _ = w.Write([]byte(`{"result":[{"stockCode":"US20220809012","orderedDate":"2026-03-11","orderNo":13,"tradeType":"buy","orderPrice":600,"orderUsdPrice":0.4074,"quantity":1,"pendingQuantity":1,"orderPriceTypeCode":"00","isFractionalOrder":false,"isAfterMarketOrder":false,"status":"체결대기"}]}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/correct/prepare/2026-03-11/13":
+			_, _ = w.Write([]byte(`{"result":{"delayCancelExchange":false,"orderKey":"trade::session::test::correct","authRequired":{"required":false,"simpleTrade":true,"verifier":null}}}`))
+		case "/api/v2/wts/trading/order/correct/2026-03-11/13":
+			_, _ = w.Write([]byte(`{"result":{"message":"주문 수정 되었어요."}}`))
+		case "/api/v2/trading/my-orders/markets/us/by-date/completed":
+			_, _ = io.WriteString(w, `{"result":{"body":[{"orderedAt":"`+now+`","lastExecutedAt":"`+now+`","orderNo":14,"orderId":"completed-amend-order-id","stockCode":"US20220809012","stockName":"TSLL","symbol":"TSLL","tradeType":"buy","status":"체결완료","orderQuantity":1,"executedQuantity":1,"userOrderDate":"`+today+`","orderPrice":{"krw":700},"averageExecutionPrice":{"krw":700}}]}}`)
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	price := 700.0
+	intent, err := orderintent.NormalizeAmend("13", nil, &price)
+	if err != nil {
+		t.Fatalf("NormalizeAmend returned error: %v", err)
+	}
+
+	result, err := client.AmendPendingOrder(context.Background(), intent)
+	if err != nil {
+		t.Fatalf("AmendPendingOrder returned error: %v", err)
+	}
+	if result.Status != "amended_completed" {
+		t.Fatalf("expected amended_completed, got %q", result.Status)
+	}
+	if result.OriginalOrderID != "13" {
+		t.Fatalf("expected original order id 13, got %q", result.OriginalOrderID)
+	}
+	if result.CurrentOrderID != today+"/14" {
+		t.Fatalf("expected current order id %s/14, got %q", today, result.CurrentOrderID)
+	}
+}
