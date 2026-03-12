@@ -134,6 +134,7 @@ tossctl config show
 
 - 브라우저 로그인 기반 세션 저장과 재사용
 - 계좌, 포트폴리오, 미체결 주문, 관심종목, 시세 조회
+- `orders completed`, `order show <id>`로 pending/completed 주문 추적
 - 제한된 거래 베타
   - `미국주식`
   - `매수`
@@ -148,11 +149,13 @@ tossctl config show
 - `order preview`
 - `order place` for `US buy limit / KRW / non-fractional`
 - `order cancel` for same-day pending orders
+- `orders completed`
+- `order show <id>`
 
 ### 아직 더 필요한 것
 
 - `order amend` 재검증
-- 즉시 체결 주문 확인 흐름 강화
+- `place`와 `amend`의 상태 확인 흐름 추가 검증
 - `매도`, `시장가`, `국내주식`, `소수점 주문`
 
 ## 이 프로젝트가 하지 않는 것
@@ -214,6 +217,7 @@ tossctl account summary
 tossctl portfolio positions
 tossctl portfolio allocation
 tossctl orders list
+tossctl orders completed
 tossctl watchlist list
 tossctl quote get <symbol>
 ```
@@ -222,6 +226,7 @@ tossctl quote get <symbol>
 
 ```bash
 tossctl order preview
+tossctl order show <id>
 tossctl config init
 tossctl config show
 tossctl order place
@@ -298,7 +303,7 @@ make test
 토스증권 조회를 스크립트에 넣고 싶거나, 주문 전 확인과 제한된 주문 흐름을 CLI로 다루고 싶은 사용자에게 맞습니다.
 
 **바로 주문까지 가능한가요?**  
-일부 범위만 베타로 지원합니다. 현재 live 검증이 끝난 건 `US buy limit / KRW / non-fractional` 기준의 `place`와 당일 pending `cancel`입니다. 그리고 거래 기능은 먼저 `config.json`에서 해당 액션을 직접 허용해야 합니다.
+일부 범위만 베타로 지원합니다. 현재 live 검증이 끝난 건 `US buy limit / KRW / non-fractional` 기준의 `place`, 당일 pending `cancel`, 그리고 `orders completed` / `order show <id>` 기반 상태 조회입니다. 거래 기능은 먼저 `config.json`에서 해당 액션을 직접 허용해야 합니다.
 
 **공식 API인가요?**  
 아닙니다. 토스증권 공식 제품이 아니고, 웹 내부 API를 재사용하는 비공식 프로젝트입니다.
@@ -308,10 +313,18 @@ make test
 
 ## 문서
 
+- [`docs/architecture.md`](docs/architecture.md)
 - [`docs/configuration.md`](docs/configuration.md)
 - [`docs/reverse-engineering/`](docs/reverse-engineering/)
 - [`docs/trading/`](docs/trading/)
 - [`auth-helper/README.md`](auth-helper/README.md)
+
+## 상태 확인 예시
+
+```bash
+tossctl orders completed --market us --output json
+tossctl order show <order-id> --market us --output json
+```
 
 ## 로컬 저장 경로
 

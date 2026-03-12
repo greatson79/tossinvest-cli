@@ -174,7 +174,11 @@ func parsePendingOrder(raw json.RawMessage) domain.Order {
 	var payload struct {
 		OrderNo         any     `json:"orderNo"`
 		OrderID         string  `json:"orderId"`
+		OrderedDate     string  `json:"orderedDate"`
 		StockCode       string  `json:"stockCode"`
+		StockName       string  `json:"stockName"`
+		Symbol          string  `json:"symbol"`
+		MarketDivision  string  `json:"marketDivision"`
 		TradeType       string  `json:"tradeType"`
 		Status          string  `json:"status"`
 		Quantity        float64 `json:"quantity"`
@@ -188,8 +192,10 @@ func parsePendingOrder(raw json.RawMessage) domain.Order {
 		return order
 	}
 
-	order.ID = normalizeOrderIdentifier(payload.OrderNo, payload.OrderID)
-	order.Symbol = payload.StockCode
+	order.ID = referenceOrderIdentifier(payload.OrderedDate, payload.OrderNo, payload.OrderID)
+	order.Symbol = firstNonEmpty(payload.Symbol, payload.StockCode)
+	order.Name = payload.StockName
+	order.Market = strings.ToLower(payload.MarketDivision)
 	order.Side = payload.TradeType
 	order.Status = payload.Status
 	order.Quantity = payload.PendingQuantity
@@ -213,10 +219,27 @@ func normalizeOrderIdentifier(orderNo any, fallback string) string {
 	return fallback
 }
 
+func referenceOrderIdentifier(orderDate string, orderNo any, fallback string) string {
+	normalized := normalizeOrderIdentifier(orderNo, fallback)
+	if strings.TrimSpace(orderDate) == "" {
+		return normalized
+	}
+	if normalized == "" {
+		return strings.TrimSpace(orderDate)
+	}
+	return strings.TrimSpace(orderDate) + "/" + normalized
+}
+
 func parseOrderTime(values ...string) *time.Time {
 	for _, value := range values {
 		if value == "" {
 			continue
+		}
+		if parsed, err := time.ParseInLocation("2006-01-02 15:04:05.000", value, time.Local); err == nil {
+			return &parsed
+		}
+		if parsed, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.Local); err == nil {
+			return &parsed
 		}
 		if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
 			return &parsed

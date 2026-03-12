@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/junghoonkye/tossinvest-cli/internal/orderintent"
 	"github.com/junghoonkye/tossinvest-cli/internal/session"
@@ -283,8 +284,15 @@ func TestPlacePendingOrderSendsXOrderKeyOnCreate(t *testing.T) {
 		t.Fatalf("NormalizePlace returned error: %v", err)
 	}
 
-	if err := client.PlacePendingOrder(context.Background(), intent); err != nil {
+	result, err := client.PlacePendingOrder(context.Background(), intent)
+	if err != nil {
 		t.Fatalf("PlacePendingOrder returned error: %v", err)
+	}
+	if result.Status != "accepted_pending" {
+		t.Fatalf("expected accepted_pending result, got %q", result.Status)
+	}
+	if result.OrderID != "2026-03-11/16" {
+		t.Fatalf("expected reconciled order id 2026-03-11/16, got %q", result.OrderID)
 	}
 	if len(paths) != 2 {
 		t.Fatalf("expected 2 mutation requests, got %d", len(paths))
@@ -294,5 +302,75 @@ func TestPlacePendingOrderSendsXOrderKeyOnCreate(t *testing.T) {
 	}
 	if orderKeys[1] != "trade::session::test::place" {
 		t.Fatalf("unexpected create x-order-key header: %#v", orderKeys)
+	}
+}
+
+func TestPlacePendingOrderReturnsFilledCompletedFromHistory(t *testing.T) {
+	t.Parallel()
+
+	today := time.Now().Format("2006-01-02")
+	now := time.Now().Format("2006-01-02 15:04:05.000")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/search/stocks":
+			_, _ = w.Write([]byte(`{"result":{"stocks":[{"stockCode":"US20220809012","stockName":"TSLL","matchType":"EXACT"}]}}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/product/stock-prices":
+			_, _ = w.Write([]byte(`{"result":[{"productCode":"US20220809012","currency":"USD","base":14.38,"close":14.4,"closeKrw":21208,"volume":13409779}]}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/prepare":
+			_, _ = w.Write([]byte(`{"result":{"delayCancelExchange":false,"orderKey":"trade::session::test::place","authRequired":{"required":false,"simpleTrade":true,"verifier":null}}}`))
+		case "/api/v2/wts/trading/order/create":
+			_, _ = w.Write([]byte(`{"result":{"message":"주문 접수 되었어요."}}`))
+		case "/api/v1/trading/orders/histories/all/pending":
+			_, _ = w.Write([]byte(`{"result":[]}`))
+		case "/api/v2/trading/my-orders/markets/us/by-date/completed":
+			_, _ = io.WriteString(w, `{"result":{"body":[{"orderedAt":"`+now+`","lastExecutedAt":"`+now+`","orderNo":1,"orderId":"completed-order-id","stockCode":"US20220809012","stockName":"TSLL","symbol":"TSLL","tradeType":"buy","status":"체결완료","orderQuantity":1,"executedQuantity":1,"userOrderDate":"`+today+`","orderPrice":{"krw":21208},"averageExecutionPrice":{"krw":21208}}]}}`)
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	intent, err := orderintent.NormalizePlace(orderintent.PlaceInput{
+		Symbol:       "TSLL",
+		Market:       "us",
+		Side:         "buy",
+		OrderType:    "limit",
+		Quantity:     1,
+		Price:        21208,
+		CurrencyMode: "KRW",
+	})
+	if err != nil {
+		t.Fatalf("NormalizePlace returned error: %v", err)
+	}
+
+	result, err := client.PlacePendingOrder(context.Background(), intent)
+	if err != nil {
+		t.Fatalf("PlacePendingOrder returned error: %v", err)
+	}
+	if result.Status != "filled_completed" {
+		t.Fatalf("expected filled_completed, got %q", result.Status)
+	}
+	if result.OrderID != today+"/1" {
+		t.Fatalf("expected completed order id, got %q", result.OrderID)
+	}
+	if result.FilledQuantity != 1 {
+		t.Fatalf("expected filled quantity 1, got %v", result.FilledQuantity)
 	}
 }

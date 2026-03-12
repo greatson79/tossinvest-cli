@@ -11,6 +11,7 @@ func newOrdersCmd(opts *rootOptions) *cobra.Command {
 		Short: "Read order history data",
 	}
 
+	var completedMarket string
 	cmd.AddCommand(
 		&cobra.Command{
 			Use:   "list",
@@ -30,6 +31,26 @@ func newOrdersCmd(opts *rootOptions) *cobra.Command {
 			},
 		},
 	)
+
+	completedCmd := &cobra.Command{
+		Use:   "completed",
+		Short: "List completed-history orders for the current month",
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			app, err := newAppContext(opts)
+			if err != nil {
+				return err
+			}
+
+			orders, err := app.client.ListCompletedOrders(cmd.Context(), completedMarket)
+			if err != nil {
+				return userFacingCommandError(err)
+			}
+
+			return output.WriteCompletedOrders(cmd.OutOrStdout(), app.format, orders)
+		},
+	}
+	completedCmd.Flags().StringVar(&completedMarket, "market", "all", "Completed-history market filter: all, us, kr")
+	cmd.AddCommand(completedCmd)
 
 	return cmd
 }

@@ -55,14 +55,19 @@ type Position struct {
 }
 
 type Order struct {
-	ID          string          `json:"id"`
-	Symbol      string          `json:"symbol"`
-	Side        string          `json:"side,omitempty"`
-	Status      string          `json:"status,omitempty"`
-	Quantity    float64         `json:"quantity,omitempty"`
-	Price       float64         `json:"price,omitempty"`
-	SubmittedAt *time.Time      `json:"submitted_at,omitempty"`
-	Raw         json.RawMessage `json:"raw,omitempty"`
+	ID                    string          `json:"id"`
+	Symbol                string          `json:"symbol"`
+	Name                  string          `json:"name,omitempty"`
+	Market                string          `json:"market,omitempty"`
+	Side                  string          `json:"side,omitempty"`
+	Status                string          `json:"status,omitempty"`
+	Quantity              float64         `json:"quantity,omitempty"`
+	FilledQuantity        float64         `json:"filled_quantity,omitempty"`
+	Price                 float64         `json:"price,omitempty"`
+	AverageExecutionPrice float64         `json:"average_execution_price,omitempty"`
+	OrderDate             string          `json:"order_date,omitempty"`
+	SubmittedAt           *time.Time      `json:"submitted_at,omitempty"`
+	Raw                   json.RawMessage `json:"raw,omitempty"`
 }
 
 type WatchlistItem struct {

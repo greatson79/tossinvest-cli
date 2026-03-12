@@ -20,12 +20,17 @@ type brokerStub struct {
 	lastOrderID     string
 	pendingSequence []bool
 	pendingChecks   int
+	placeResult     MutationResult
+	amendResult     MutationResult
 }
 
-func (b *brokerStub) PlacePendingOrder(_ context.Context, intent orderintent.PlaceIntent) error {
+func (b *brokerStub) PlacePendingOrder(_ context.Context, intent orderintent.PlaceIntent) (MutationResult, error) {
 	b.placeCalled = true
 	b.lastOrderID = intent.Symbol
-	return nil
+	if b.placeResult.Kind == "" {
+		b.placeResult = MutationResult{Kind: "place", Status: "accepted_pending", OrderID: intent.Symbol}
+	}
+	return b.placeResult, nil
 }
 
 func (b *brokerStub) GetOrderAvailableActions(_ context.Context, orderID string) (map[string]any, error) {
@@ -39,10 +44,13 @@ func (b *brokerStub) CancelPendingOrder(_ context.Context, orderID string) error
 	return nil
 }
 
-func (b *brokerStub) AmendPendingOrder(_ context.Context, intent orderintent.AmendIntent) error {
+func (b *brokerStub) AmendPendingOrder(_ context.Context, intent orderintent.AmendIntent) (MutationResult, error) {
 	b.amendCalled = true
 	b.lastOrderID = intent.OrderID
-	return nil
+	if b.amendResult.Kind == "" {
+		b.amendResult = MutationResult{Kind: "amend", Status: "amended_pending", OrderID: intent.OrderID, CurrentOrderID: intent.OrderID}
+	}
+	return b.amendResult, nil
 }
 
 func (b *brokerStub) HasPendingOrder(context.Context, string) (bool, error) {
@@ -81,20 +89,20 @@ func TestPlaceRequiresExecutionFlagsAndGrant(t *testing.T) {
 		t.Fatalf("NormalizePlace returned error: %v", err)
 	}
 
-	if err := service.Place(context.Background(), intent, ExecuteOptions{}); !errors.Is(err, ErrExecuteRequired) {
+	if _, err := service.Place(context.Background(), intent, ExecuteOptions{}); !errors.Is(err, ErrExecuteRequired) {
 		t.Fatalf("expected ErrExecuteRequired, got %v", err)
 	}
-	if err := service.Place(context.Background(), intent, ExecuteOptions{Execute: true}); !errors.Is(err, ErrDangerousFlagRequired) {
+	if _, err := service.Place(context.Background(), intent, ExecuteOptions{Execute: true}); !errors.Is(err, ErrDangerousFlagRequired) {
 		t.Fatalf("expected ErrDangerousFlagRequired, got %v", err)
 	}
-	if err := service.Place(context.Background(), intent, ExecuteOptions{
+	if _, err := service.Place(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    "badtoken",
 	}); !errors.Is(err, ErrConfirmMismatch) {
 		t.Fatalf("expected ErrConfirmMismatch, got %v", err)
 	}
-	if err := service.Place(context.Background(), intent, ExecuteOptions{
+	if _, err := service.Place(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewPlace(intent).ConfirmToken,
@@ -128,15 +136,19 @@ func TestPlaceCallsBrokerForSupportedIntent(t *testing.T) {
 		t.Fatalf("NormalizePlace returned error: %v", err)
 	}
 
-	if err := service.Place(context.Background(), intent, ExecuteOptions{
+	result, err := service.Place(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewPlace(intent).ConfirmToken,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Place returned error: %v", err)
 	}
 	if !broker.placeCalled {
 		t.Fatal("expected broker place to be called")
+	}
+	if result.Status != "accepted_pending" {
+		t.Fatalf("expected accepted_pending, got %q", result.Status)
 	}
 }
 
@@ -158,11 +170,12 @@ func TestCancelExecutesBrokerAndReconciles(t *testing.T) {
 		t.Fatalf("NormalizeCancel returned error: %v", err)
 	}
 
-	if err := service.Cancel(context.Background(), intent, ExecuteOptions{
+	result, err := service.Cancel(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewCancel(intent).ConfirmToken,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("Cancel returned error: %v", err)
 	}
 	if !broker.cancelCalled {
@@ -170,6 +183,9 @@ func TestCancelExecutesBrokerAndReconciles(t *testing.T) {
 	}
 	if broker.lastOrderID != "5" {
 		t.Fatalf("expected order id 5, got %q", broker.lastOrderID)
+	}
+	if result.Status != "canceled" {
+		t.Fatalf("expected canceled result, got %q", result.Status)
 	}
 }
 
@@ -199,7 +215,7 @@ func TestCancelWaitsForPendingOrderToDisappear(t *testing.T) {
 		t.Fatalf("NormalizeCancel returned error: %v", err)
 	}
 
-	err = service.Cancel(context.Background(), intent, ExecuteOptions{
+	_, err = service.Cancel(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewCancel(intent).ConfirmToken,
@@ -237,7 +253,7 @@ func TestCancelFailsWhenOrderStillPending(t *testing.T) {
 		t.Fatalf("NormalizeCancel returned error: %v", err)
 	}
 
-	err = service.Cancel(context.Background(), intent, ExecuteOptions{
+	_, err = service.Cancel(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewCancel(intent).ConfirmToken,
@@ -268,7 +284,7 @@ func TestAmendCallsBrokerAfterGate(t *testing.T) {
 		t.Fatalf("NormalizeAmend returned error: %v", err)
 	}
 
-	err = service.Amend(context.Background(), intent, ExecuteOptions{
+	result, err := service.Amend(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewAmend(intent).ConfirmToken,
@@ -278,6 +294,9 @@ func TestAmendCallsBrokerAfterGate(t *testing.T) {
 	}
 	if !broker.amendCalled {
 		t.Fatal("expected broker amend to be called")
+	}
+	if result.Status != "amended_pending" {
+		t.Fatalf("expected amended_pending, got %q", result.Status)
 	}
 }
 
@@ -304,7 +323,7 @@ func TestPlaceFailsWhenActionDisabledInConfig(t *testing.T) {
 		t.Fatalf("NormalizePlace returned error: %v", err)
 	}
 
-	err = service.Place(context.Background(), intent, ExecuteOptions{
+	_, err = service.Place(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewPlace(intent).ConfirmToken,
@@ -338,7 +357,7 @@ func TestPlaceFailsWhenDangerousExecuteIsDisabledInConfig(t *testing.T) {
 		t.Fatalf("NormalizePlace returned error: %v", err)
 	}
 
-	err = service.Place(context.Background(), intent, ExecuteOptions{
+	_, err = service.Place(context.Background(), intent, ExecuteOptions{
 		Execute:                    true,
 		DangerouslySkipPermissions: true,
 		Confirm:                    service.PreviewPlace(intent).ConfirmToken,

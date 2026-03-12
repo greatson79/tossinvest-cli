@@ -12,10 +12,10 @@ import (
 )
 
 type Broker interface {
-	PlacePendingOrder(ctx context.Context, intent orderintent.PlaceIntent) error
+	PlacePendingOrder(ctx context.Context, intent orderintent.PlaceIntent) (MutationResult, error)
 	GetOrderAvailableActions(ctx context.Context, orderID string) (map[string]any, error)
 	CancelPendingOrder(ctx context.Context, orderID string) error
-	AmendPendingOrder(ctx context.Context, intent orderintent.AmendIntent) error
+	AmendPendingOrder(ctx context.Context, intent orderintent.AmendIntent) (MutationResult, error)
 	HasPendingOrder(ctx context.Context, orderID string) (bool, error)
 }
 
@@ -99,7 +99,7 @@ func (s *Service) PreviewAmend(intent orderintent.AmendIntent) Preview {
 	canonical := orderintent.CanonicalAmend(intent)
 	warnings := []string{
 		"Amend reconciles against the surviving pending order record after mutation.",
-		"Request bodies for amend are still under active discovery.",
+		"Amend wiring exists, but the current beta slice still needs more live verification.",
 	}
 	if !s.policy.Amend {
 		warnings = append(warnings, "Config currently disables `order amend`.")
@@ -112,48 +112,57 @@ func (s *Service) PreviewAmend(intent orderintent.AmendIntent) Preview {
 		Canonical:     canonical,
 		ConfirmToken:  orderintent.ConfirmToken(canonical),
 		Warnings:      warnings,
-		LiveReady:     false,
-		MutationReady: false,
+		LiveReady:     true,
+		MutationReady: s.policy.Amend && s.policy.AllowDangerousExecute,
 	}
 }
 
-func (s *Service) Place(ctx context.Context, intent orderintent.PlaceIntent, opts ExecuteOptions) error {
+func (s *Service) Place(ctx context.Context, intent orderintent.PlaceIntent, opts ExecuteOptions) (MutationResult, error) {
 	if err := s.guard(ctx, ActionPlace, s.PreviewPlace(intent), opts); err != nil {
-		return err
+		return MutationResult{}, err
 	}
 	if !placeIntentSupported(intent) {
-		return ErrPlaceUnsupported
+		return MutationResult{}, ErrPlaceUnsupported
 	}
 	if s.broker == nil {
-		return ErrLiveMutationPending
+		return MutationResult{}, ErrLiveMutationPending
 	}
 	return s.broker.PlacePendingOrder(ctx, intent)
 }
 
-func (s *Service) Cancel(ctx context.Context, intent orderintent.CancelIntent, opts ExecuteOptions) error {
+func (s *Service) Cancel(ctx context.Context, intent orderintent.CancelIntent, opts ExecuteOptions) (MutationResult, error) {
 	if err := s.guard(ctx, ActionCancel, s.PreviewCancel(intent), opts); err != nil {
-		return err
+		return MutationResult{}, err
 	}
 	if s.broker == nil {
-		return ErrLiveMutationPending
+		return MutationResult{}, ErrLiveMutationPending
 	}
 
 	if _, err := s.broker.GetOrderAvailableActions(ctx, intent.OrderID); err != nil {
-		return err
+		return MutationResult{}, err
 	}
 	if err := s.broker.CancelPendingOrder(ctx, intent.OrderID); err != nil {
-		return err
+		return MutationResult{}, err
 	}
 
-	return s.waitForCanceledOrder(ctx, intent.OrderID)
+	if err := s.waitForCanceledOrder(ctx, intent.OrderID); err != nil {
+		return MutationResult{}, err
+	}
+
+	return MutationResult{
+		Kind:    "cancel",
+		Status:  "canceled",
+		OrderID: intent.OrderID,
+		Symbol:  intent.Symbol,
+	}, nil
 }
 
-func (s *Service) Amend(ctx context.Context, intent orderintent.AmendIntent, opts ExecuteOptions) error {
+func (s *Service) Amend(ctx context.Context, intent orderintent.AmendIntent, opts ExecuteOptions) (MutationResult, error) {
 	if err := s.guard(ctx, ActionAmend, s.PreviewAmend(intent), opts); err != nil {
-		return err
+		return MutationResult{}, err
 	}
 	if s.broker == nil {
-		return ErrLiveMutationPending
+		return MutationResult{}, ErrLiveMutationPending
 	}
 	return s.broker.AmendPendingOrder(ctx, intent)
 }

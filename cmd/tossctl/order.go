@@ -37,12 +37,13 @@ type amendFlags struct {
 func newOrderCmd(opts *rootOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "order",
-		Short: "Preview and manage trading mutations",
+		Short: "Preview, inspect, and manage trading actions",
 		Long: "Trading commands are intentionally separate from read-only commands and " +
 			"default to a local preview and permission gate before any future live mutation support.",
 	}
 
 	cmd.AddCommand(
+		newOrderShowCmd(opts),
 		newOrderPreviewCmd(opts),
 		newOrderPlaceCmd(opts),
 		newOrderCancelCmd(opts),
@@ -50,6 +51,32 @@ func newOrderCmd(opts *rootOptions) *cobra.Command {
 		newOrderPermissionsCmd(opts),
 	)
 
+	return cmd
+}
+
+func newOrderShowCmd(opts *rootOptions) *cobra.Command {
+	var market string
+
+	cmd := &cobra.Command{
+		Use:   "show <order-id>",
+		Short: "Show a single order from pending or current-month completed history",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			app, err := newAppContext(opts)
+			if err != nil {
+				return err
+			}
+
+			order, err := app.client.FindOrder(cmd.Context(), args[0], market)
+			if err != nil {
+				return userFacingCommandError(err)
+			}
+
+			return output.WriteOrder(cmd.OutOrStdout(), app.format, order)
+		},
+	}
+
+	cmd.Flags().StringVar(&market, "market", "all", "Completed-history market filter used during lookup: all, us, kr")
 	return cmd
 }
 
@@ -114,7 +141,7 @@ func newOrderPlaceCmd(opts *rootOptions) *cobra.Command {
 				return err
 			}
 
-			err = app.tradingService.Place(cmd.Context(), intent, trading.ExecuteOptions{
+			result, err := app.tradingService.Place(cmd.Context(), intent, trading.ExecuteOptions{
 				Execute:                    exec.execute,
 				DangerouslySkipPermissions: exec.dangerouslySkipPermissions,
 				Confirm:                    exec.confirm,
@@ -123,13 +150,7 @@ func newOrderPlaceCmd(opts *rootOptions) *cobra.Command {
 				return userFacingTradingError(app.paths, err)
 			}
 
-			return writeTradingMutationResult(cmd, app.format, "place", map[string]any{
-				"symbol":   intent.Symbol,
-				"side":     intent.Side,
-				"quantity": intent.Quantity,
-				"price":    intent.Price,
-				"status":   "accepted_pending",
-			})
+			return output.WriteMutationResult(cmd.OutOrStdout(), app.format, result)
 		},
 	}
 
@@ -162,7 +183,7 @@ func newOrderCancelCmd(opts *rootOptions) *cobra.Command {
 				return output.WriteTradingPreview(cmd.OutOrStdout(), app.format, preview)
 			}
 
-			err = app.tradingService.Cancel(cmd.Context(), intent, trading.ExecuteOptions{
+			result, err := app.tradingService.Cancel(cmd.Context(), intent, trading.ExecuteOptions{
 				Execute:                    exec.execute,
 				DangerouslySkipPermissions: exec.dangerouslySkipPermissions,
 				Confirm:                    exec.confirm,
@@ -171,11 +192,7 @@ func newOrderCancelCmd(opts *rootOptions) *cobra.Command {
 				return userFacingTradingError(app.paths, err)
 			}
 
-			return writeTradingMutationResult(cmd, app.format, "cancel", map[string]any{
-				"order_id": orderID,
-				"symbol":   symbol,
-				"status":   "canceled",
-			})
+			return output.WriteMutationResult(cmd.OutOrStdout(), app.format, result)
 		},
 	}
 
@@ -214,7 +231,7 @@ func newOrderAmendCmd(opts *rootOptions) *cobra.Command {
 				return output.WriteTradingPreview(cmd.OutOrStdout(), app.format, preview)
 			}
 
-			err = app.tradingService.Amend(cmd.Context(), intent, trading.ExecuteOptions{
+			result, err := app.tradingService.Amend(cmd.Context(), intent, trading.ExecuteOptions{
 				Execute:                    exec.execute,
 				DangerouslySkipPermissions: exec.dangerouslySkipPermissions,
 				Confirm:                    exec.confirm,
@@ -222,18 +239,7 @@ func newOrderAmendCmd(opts *rootOptions) *cobra.Command {
 			if err != nil {
 				return userFacingTradingError(app.paths, err)
 			}
-
-			payload := map[string]any{
-				"order_id": flags.orderID,
-				"status":   "amended_pending",
-			}
-			if intent.Quantity != nil {
-				payload["quantity"] = *intent.Quantity
-			}
-			if intent.Price != nil {
-				payload["price"] = *intent.Price
-			}
-			return writeTradingMutationResult(cmd, app.format, "amend", payload)
+			return output.WriteMutationResult(cmd.OutOrStdout(), app.format, result)
 		},
 	}
 
@@ -372,20 +378,4 @@ func optionalFloat64(cmd *cobra.Command, name string, value float64) *float64 {
 		return nil
 	}
 	return &value
-}
-
-func writeTradingMutationResult(cmd *cobra.Command, format output.Format, kind string, payload map[string]any) error {
-	switch format {
-	case output.FormatJSON:
-		encoder := json.NewEncoder(cmd.OutOrStdout())
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(payload)
-	case output.FormatCSV:
-		return fmt.Errorf("csv output is not supported for %s", kind)
-	case output.FormatTable:
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s succeeded\n", kind)
-		return err
-	default:
-		return fmt.Errorf("unsupported output format: %s", format)
-	}
 }
