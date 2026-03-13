@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/junghoonkye/tossinvest-cli/internal/orderlineage"
 	"github.com/junghoonkye/tossinvest-cli/internal/session"
 )
 
@@ -202,5 +203,151 @@ func TestFindOrderWithAliasesMarksResolvedFromID(t *testing.T) {
 	}
 	if order.ResolvedFromID != "2026-03-13/1" {
 		t.Fatalf("expected resolved_from_id 2026-03-13/1, got %q", order.ResolvedFromID)
+	}
+}
+
+func TestFindCompletedOrderFromLineageHintRecoversDelayedCancelRollover(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/trading/my-orders/markets/us/by-date/completed":
+			_, _ = w.Write([]byte(`{
+			  "result": {
+			    "body": [
+			      {
+			        "orderedAt": "2026-03-13 10:00:05.000",
+			        "lastExecutedAt": "2026-03-13 10:00:05.000",
+			        "orderNo": 4,
+			        "orderId": "completed-order-id",
+			        "stockCode": "US20220809012",
+			        "stockName": "TSLL",
+			        "symbol": "TSLL",
+			        "tradeType": "buy",
+			        "status": "취소",
+			        "orderQuantity": 1,
+			        "executedQuantity": 0,
+			        "userOrderDate": "2026-03-13",
+			        "orderPrice": {"krw": 500},
+			        "averageExecutionPrice": {"krw": 0}
+			      }
+			    ]
+			  }
+			}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.1636", "Browser-Tab-Id": "browser-tab-test"},
+		},
+	})
+
+	order, ok, err := client.FindCompletedOrderFromLineageHint(context.Background(), "2026-03-13/3", "all", orderlineage.Entry{
+		Kind:      "cancel",
+		Symbol:    "TSLL",
+		Market:    "us",
+		Quantity:  1,
+		Price:     500,
+		OrderDate: "2026-03-13",
+		UpdatedAt: time.Date(2026, 3, 13, 10, 0, 3, 0, time.Local),
+	})
+	if err != nil {
+		t.Fatalf("FindCompletedOrderFromLineageHint returned error: %v", err)
+	}
+	if !ok {
+		t.Fatal("expected delayed recovery hit")
+	}
+	if order.ID != "2026-03-13/4" {
+		t.Fatalf("expected recovered order id 2026-03-13/4, got %q", order.ID)
+	}
+	if order.ResolvedFromID != "2026-03-13/3" {
+		t.Fatalf("expected resolved_from_id 2026-03-13/3, got %q", order.ResolvedFromID)
+	}
+}
+
+func TestFindCompletedOrderFromLineageHintFailsWhenAmbiguous(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/trading/my-orders/markets/us/by-date/completed":
+			_, _ = w.Write([]byte(`{
+			  "result": {
+			    "body": [
+			      {
+			        "orderedAt": "2026-03-13 10:00:05.000",
+			        "lastExecutedAt": "2026-03-13 10:00:05.000",
+			        "orderNo": 4,
+			        "orderId": "completed-order-id-a",
+			        "stockCode": "US20220809012",
+			        "stockName": "TSLL",
+			        "symbol": "TSLL",
+			        "tradeType": "buy",
+			        "status": "취소",
+			        "orderQuantity": 1,
+			        "executedQuantity": 0,
+			        "userOrderDate": "2026-03-13",
+			        "orderPrice": {"krw": 500},
+			        "averageExecutionPrice": {"krw": 0}
+			      },
+			      {
+			        "orderedAt": "2026-03-13 10:00:06.000",
+			        "lastExecutedAt": "2026-03-13 10:00:06.000",
+			        "orderNo": 5,
+			        "orderId": "completed-order-id-b",
+			        "stockCode": "US20220809012",
+			        "stockName": "TSLL",
+			        "symbol": "TSLL",
+			        "tradeType": "buy",
+			        "status": "취소",
+			        "orderQuantity": 1,
+			        "executedQuantity": 0,
+			        "userOrderDate": "2026-03-13",
+			        "orderPrice": {"krw": 500},
+			        "averageExecutionPrice": {"krw": 0}
+			      }
+			    ]
+			  }
+			}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.1636", "Browser-Tab-Id": "browser-tab-test"},
+		},
+	})
+
+	_, ok, err := client.FindCompletedOrderFromLineageHint(context.Background(), "2026-03-13/3", "all", orderlineage.Entry{
+		Kind:      "cancel",
+		Symbol:    "TSLL",
+		Market:    "us",
+		Quantity:  1,
+		Price:     500,
+		OrderDate: "2026-03-13",
+		UpdatedAt: time.Date(2026, 3, 13, 10, 0, 3, 0, time.Local),
+	})
+	if err == nil {
+		t.Fatal("expected ambiguous recovery error")
+	}
+	if ok {
+		t.Fatal("expected no successful recovery on ambiguity")
 	}
 }

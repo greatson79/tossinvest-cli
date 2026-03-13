@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/junghoonkye/tossinvest-cli/internal/domain"
+	"github.com/junghoonkye/tossinvest-cli/internal/orderlineage"
 )
 
 type completedOrdersEnvelope struct {
@@ -99,6 +100,50 @@ func (c *Client) FindOrderWithAliases(ctx context.Context, orderID string, marke
 	return domain.Order{}, fmt.Errorf("order %s was not found in pending or current-month completed history", orderID)
 }
 
+func (c *Client) FindCompletedOrderFromLineageHint(ctx context.Context, requestedOrderID string, market string, hint orderlineage.Entry) (domain.Order, bool, error) {
+	if strings.TrimSpace(hint.Kind) != "cancel" {
+		return domain.Order{}, false, nil
+	}
+
+	lookupMarket := strings.TrimSpace(market)
+	if lookupMarket == "" || strings.EqualFold(lookupMarket, "all") {
+		if strings.TrimSpace(hint.Market) != "" {
+			lookupMarket = hint.Market
+		} else {
+			lookupMarket = "all"
+		}
+	}
+
+	orders, err := c.ListCompletedOrders(ctx, lookupMarket)
+	if err != nil {
+		return domain.Order{}, false, err
+	}
+
+	earliestSubmittedAt := time.Time{}
+	if !hint.UpdatedAt.IsZero() {
+		earliestSubmittedAt = hint.UpdatedAt.Add(-mutationCompletedLookback)
+	}
+
+	candidates := make([]domain.Order, 0, 1)
+	for _, order := range orders {
+		if !matchesDelayedCancelRecoveryHint(order, requestedOrderID, hint, earliestSubmittedAt) {
+			continue
+		}
+		candidates = append(candidates, order)
+	}
+
+	switch len(candidates) {
+	case 0:
+		return domain.Order{}, false, nil
+	case 1:
+		order := candidates[0]
+		order.ResolvedFromID = requestedOrderID
+		return order, true, nil
+	default:
+		return domain.Order{}, false, fmt.Errorf("order %s has multiple delayed cancel rollover candidates; inspect `tossctl orders completed` first", requestedOrderID)
+	}
+}
+
 func uniqueOrderLookupCandidates(orderID string, aliases ...string) []string {
 	candidates := make([]string, 0, len(aliases)+1)
 	seen := map[string]struct{}{}
@@ -129,6 +174,40 @@ func findOrderInCollection(orders []domain.Order, requestedOrderID string, candi
 		}
 	}
 	return domain.Order{}, false
+}
+
+func matchesDelayedCancelRecoveryHint(order domain.Order, requestedOrderID string, hint orderlineage.Entry, earliestSubmittedAt time.Time) bool {
+	if order.ID == requestedOrderID || orderMatchesID(order.Raw, requestedOrderID) {
+		return false
+	}
+	if !earliestSubmittedAt.IsZero() {
+		if order.SubmittedAt != nil {
+			if order.SubmittedAt.Before(earliestSubmittedAt) {
+				return false
+			}
+		} else if hint.OrderDate != "" && order.OrderDate != hint.OrderDate {
+			return false
+		}
+	}
+	if hint.OrderDate != "" && order.OrderDate != "" && order.OrderDate != hint.OrderDate {
+		return false
+	}
+	if hint.Symbol != "" && !strings.EqualFold(order.Symbol, hint.Symbol) {
+		return false
+	}
+	if hint.Market != "" && order.Market != "" && !strings.EqualFold(order.Market, hint.Market) {
+		return false
+	}
+	if !orderStatusLooksCanceled(order.Status) {
+		return false
+	}
+	if hint.Quantity != 0 && !equalFloat(order.Quantity, hint.Quantity) && !equalFloat(order.FilledQuantity, hint.Quantity) {
+		return false
+	}
+	if hint.Price != 0 && !equalFloat(order.Price, hint.Price) {
+		return false
+	}
+	return true
 }
 
 func parseCompletedOrder(raw json.RawMessage, market string) domain.Order {

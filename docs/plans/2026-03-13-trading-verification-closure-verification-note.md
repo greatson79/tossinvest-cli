@@ -116,11 +116,11 @@ Scope: US buy limit / KRW / non-fractional only
   - immediate reconciliation: pending disappeared, but completed row was not yet visible so no `current_order_id` was returned
   - delayed reconciliation:
     - `orders completed --market us` later showed the canceled order as `2026-03-13/4`
-    - `order show 2026-03-13/3` still failed because the delayed completed-history rollover had not been captured into the local lineage cache at mutation time
+    - this gap is now addressed in code by storing unresolved cancel recovery hints and retrying completed-history lookup on `order show <old-id>`
 - conclusion:
   - `amend` remains blocked by broker-side interactive auth for this account/session
   - cancel rollover can appear later than the mutation reconciliation window
-  - current lineage fallback helps only when the surviving ref is visible during mutation-time reconciliation
+  - delayed cancel rollover now has a same-machine on-demand recovery path, but ambiguous candidates still require manual inspection
 
 ## Code Changes Found Necessary During Live Verification
 
@@ -134,6 +134,8 @@ Scope: US buy limit / KRW / non-fractional only
   - soft-failure handling for `400`
   - cancel completed-history rollover reconciliation
   - local alias lookup for `order show`
+  - delayed cancel rollover recovery from lineage hints
+  - ambiguous delayed cancel rollover rejection
 
 ## Post-Run Safety State
 
@@ -143,11 +145,10 @@ Scope: US buy limit / KRW / non-fractional only
 ## Still Pending
 
 - live re-test of `order amend` after lineage/reconciliation changes
-- delayed cancel rollover capture when completed history appears after the immediate reconciliation window
 - evidence-driven confirmation of whether the observed interactive-auth branch for `amend` is account-specific or generally expected
 
 ## Next Operator Steps
 
 1. Run full `go test ./...` after the live-driven fixes.
-2. Decide whether to extend lineage tracking so delayed completed-history rows can be linked back to the original canceled order.
+2. Live re-test `order show <old-id>` on a delayed cancel rollover after the new on-demand recovery path lands.
 3. Live re-test `order amend` again only if broker-side interactive auth can be satisfied or explicitly automated.

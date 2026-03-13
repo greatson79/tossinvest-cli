@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/junghoonkye/tossinvest-cli/internal/domain"
+	"github.com/junghoonkye/tossinvest-cli/internal/orderlineage"
 	"github.com/junghoonkye/tossinvest-cli/internal/orderintent"
 	"github.com/junghoonkye/tossinvest-cli/internal/output"
 	"github.com/junghoonkye/tossinvest-cli/internal/trading"
@@ -69,17 +72,27 @@ func newOrderShowCmd(opts *rootOptions) *cobra.Command {
 			}
 
 			aliases := []string{}
+			lineageHintKey := args[0]
 			lineageErr := error(nil)
 			if app.lineageService != nil {
 				if currentOrderID, ok, err := app.lineageService.Resolve(args[0]); err != nil {
 					lineageErr = err
 				} else if ok {
 					aliases = append(aliases, currentOrderID)
+					lineageHintKey = currentOrderID
 				}
 			}
 
 			order, err := app.client.FindOrderWithAliases(cmd.Context(), args[0], market, aliases...)
 			if err != nil {
+				if recoveredOrder, recovered, recoveryErr := recoverOrderWithLineageHint(cmd.Context(), app, args[0], lineageHintKey, market); recoveryErr != nil {
+					if lineageErr != nil {
+						return fmt.Errorf("%v; local lineage cache %s could not be read: %v", recoveryErr, app.paths.LineageFile, lineageErr)
+					}
+					return recoveryErr
+				} else if recovered {
+					return output.WriteOrder(cmd.OutOrStdout(), app.format, recoveredOrder)
+				}
 				if lineageErr != nil {
 					return fmt.Errorf("%w; local lineage cache %s could not be read: %v", err, app.paths.LineageFile, lineageErr)
 				}
@@ -364,6 +377,39 @@ func defaultPlaceFlags() *placeFlags {
 	}
 }
 
+func recoverOrderWithLineageHint(ctx context.Context, app *appContext, requestedOrderID, lineageHintKey, market string) (domain.Order, bool, error) {
+	if app == nil || app.lineageService == nil {
+		return domain.Order{}, false, nil
+	}
+
+	entry, ok, err := app.lineageService.Lookup(lineageHintKey)
+	if err != nil {
+		return domain.Order{}, false, err
+	}
+	if !ok {
+		return domain.Order{}, false, nil
+	}
+
+	order, recovered, err := app.client.FindCompletedOrderFromLineageHint(ctx, requestedOrderID, market, entry)
+	if err != nil || !recovered {
+		return order, recovered, err
+	}
+
+	if err := app.lineageService.Record(lineageHintKey, orderlineage.Entry{
+		CurrentOrderID: order.ID,
+		Kind:           entry.Kind,
+		Symbol:         entry.Symbol,
+		Market:         entry.Market,
+		Quantity:       entry.Quantity,
+		Price:          entry.Price,
+		OrderDate:      entry.OrderDate,
+	}); err != nil {
+		return order, true, nil
+	}
+
+	return order, true, nil
+}
+
 func bindPlaceFlags(cmd *cobra.Command, flags *placeFlags) {
 	cmd.Flags().StringVar(&flags.symbol, "symbol", "", "Trading symbol")
 	cmd.Flags().StringVar(&flags.market, "market", flags.market, "Market identifier")
@@ -403,12 +449,20 @@ func recordMutationLineage(app *appContext, result *trading.MutationResult) {
 	}
 
 	originalOrderID := strings.TrimSpace(result.OriginalOrderID)
-	currentOrderID := strings.TrimSpace(result.CurrentOrderID)
-	if originalOrderID == "" || currentOrderID == "" || originalOrderID == currentOrderID {
+	if originalOrderID == "" {
 		return
 	}
 
-	if err := app.lineageService.Record(originalOrderID, currentOrderID, result.Kind); err != nil {
+	entry := orderlineage.Entry{
+		CurrentOrderID: strings.TrimSpace(result.CurrentOrderID),
+		Kind:           strings.TrimSpace(result.Kind),
+		Symbol:         strings.TrimSpace(result.Symbol),
+		Market:         strings.TrimSpace(result.Market),
+		Quantity:       result.Quantity,
+		Price:          result.Price,
+		OrderDate:      strings.TrimSpace(result.OrderDate),
+	}
+	if err := app.lineageService.Record(originalOrderID, entry); err != nil {
 		result.Warnings = append(result.Warnings, fmt.Sprintf("Could not update local lineage cache at %s: %v", app.paths.LineageFile, err))
 	}
 }
