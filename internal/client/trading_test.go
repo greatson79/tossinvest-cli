@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -539,6 +540,189 @@ func TestPlacePendingOrderReturnsFilledCompletedFromHistory(t *testing.T) {
 	}
 	if result.FilledQuantity != 1 {
 		t.Fatalf("expected filled quantity 1, got %v", result.FilledQuantity)
+	}
+}
+
+func TestPlacePendingOrderReturnsFundingRequiredFromPrepare(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/search/stocks":
+			_, _ = w.Write([]byte(`{"result":{"stocks":[{"stockCode":"US20220809012","stockName":"TSLL","matchType":"EXACT"}]}}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/product/stock-prices":
+			_, _ = w.Write([]byte(`{"result":[{"productCode":"US20220809012","currency":"USD","base":14.38,"close":14.4,"closeKrw":21208,"volume":13409779}]}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/prepare":
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"title":"계좌 잔액이 부족해요","body":"구매를 위해 21,511원을 채울게요.","actions":["닫기","모바일에서 채우기"]}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	intent, err := orderintent.NormalizePlace(orderintent.PlaceInput{
+		Symbol:       "TSLL",
+		Market:       "us",
+		Side:         "buy",
+		OrderType:    "limit",
+		Quantity:     1,
+		Price:        500,
+		CurrencyMode: "KRW",
+	})
+	if err != nil {
+		t.Fatalf("NormalizePlace returned error: %v", err)
+	}
+
+	_, err = client.PlacePendingOrder(context.Background(), intent)
+	var branchErr *tradingflow.BranchRequiredError
+	if !errors.As(err, &branchErr) {
+		t.Fatalf("expected BranchRequiredError, got %v", err)
+	}
+	if branchErr.Branch != tradingflow.BranchFundingRequired {
+		t.Fatalf("expected funding branch, got %q", branchErr.Branch)
+	}
+	if branchErr.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d", branchErr.StatusCode)
+	}
+	if branchErr.BrokerMessage == "" {
+		t.Fatal("expected broker message to be preserved")
+	}
+}
+
+func TestPlacePendingOrderReturnsFXConsentRequiredFromPrepare(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/search/stocks":
+			_, _ = w.Write([]byte(`{"result":{"stocks":[{"stockCode":"US20220809012","stockName":"TSLL","matchType":"EXACT"}]}}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/product/stock-prices":
+			_, _ = w.Write([]byte(`{"result":[{"productCode":"US20220809012","currency":"USD","base":14.38,"close":14.4,"closeKrw":21208,"volume":13409779}]}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/prepare":
+			w.WriteHeader(http.StatusInternalServerError)
+			_, _ = w.Write([]byte(`{"message":"환전 후 주문하려면 외화 사용 동의가 필요해요."}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	intent, err := orderintent.NormalizePlace(orderintent.PlaceInput{
+		Symbol:       "TSLL",
+		Market:       "us",
+		Side:         "buy",
+		OrderType:    "limit",
+		Quantity:     1,
+		Price:        500,
+		CurrencyMode: "KRW",
+	})
+	if err != nil {
+		t.Fatalf("NormalizePlace returned error: %v", err)
+	}
+
+	_, err = client.PlacePendingOrder(context.Background(), intent)
+	var branchErr *tradingflow.BranchRequiredError
+	if !errors.As(err, &branchErr) {
+		t.Fatalf("expected BranchRequiredError, got %v", err)
+	}
+	if branchErr.Branch != tradingflow.BranchFXConsentRequired {
+		t.Fatalf("expected fx-consent branch, got %q", branchErr.Branch)
+	}
+	if branchErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", branchErr.StatusCode)
+	}
+}
+
+func TestPlacePendingOrderReturnsGenericPrepareRejected(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/search/stocks":
+			_, _ = w.Write([]byte(`{"result":{"stocks":[{"stockCode":"US20220809012","stockName":"TSLL","matchType":"EXACT"}]}}`))
+		case "/api/v2/stock-infos/US20220809012":
+			_, _ = w.Write([]byte(`{"result":{"symbol":"TSLL","name":"TSLL","currency":"USD","status":"N","market":{"code":"NSQ","displayName":"NASDAQ"}}}`))
+		case "/api/v1/product/stock-prices":
+			_, _ = w.Write([]byte(`{"result":[{"productCode":"US20220809012","currency":"USD","base":14.38,"close":14.4,"closeKrw":21208,"volume":13409779}]}`))
+		case "/api/v1/exchange/usd/base-exchange-rate":
+			_, _ = w.Write([]byte(`{"result":{"rate":1472.8}}`))
+		case "/api/v2/wts/trading/order/prepare":
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"message":"broker rejected the order"}`))
+		default:
+			t.Fatalf("unexpected request path: %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := New(Config{
+		HTTPClient:  server.Client(),
+		APIBaseURL:  server.URL,
+		InfoBaseURL: server.URL,
+		CertBaseURL: server.URL,
+		Session: &session.Session{
+			Cookies: map[string]string{"SESSION": "test-session"},
+			Headers: map[string]string{"App-Version": "v260311.2121"},
+			Storage: map[string]string{"localStorage:qr-tabId": "browser-tab-test123"},
+		},
+	})
+
+	intent, err := orderintent.NormalizePlace(orderintent.PlaceInput{
+		Symbol:       "TSLL",
+		Market:       "us",
+		Side:         "buy",
+		OrderType:    "limit",
+		Quantity:     1,
+		Price:        500,
+		CurrencyMode: "KRW",
+	})
+	if err != nil {
+		t.Fatalf("NormalizePlace returned error: %v", err)
+	}
+
+	_, err = client.PlacePendingOrder(context.Background(), intent)
+	var rejectedErr *tradingflow.PrepareRejectedError
+	if !errors.As(err, &rejectedErr) {
+		t.Fatalf("expected PrepareRejectedError, got %v", err)
+	}
+	if rejectedErr.StatusCode != http.StatusUnprocessableEntity {
+		t.Fatalf("expected status 422, got %d", rejectedErr.StatusCode)
+	}
+	if rejectedErr.BrokerMessage != "broker rejected the order" {
+		t.Fatalf("unexpected broker message: %q", rejectedErr.BrokerMessage)
 	}
 }
 

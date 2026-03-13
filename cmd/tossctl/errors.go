@@ -3,6 +3,8 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 
 	tossclient "github.com/junghoonkye/tossinvest-cli/internal/client"
 	"github.com/junghoonkye/tossinvest-cli/internal/config"
@@ -58,6 +60,19 @@ func userFacingTradingError(paths config.Paths, err error) error {
 		return nil
 	}
 
+	var branchRequired *trading.BranchRequiredError
+	if errors.As(err, &branchRequired) {
+		return formatBranchRequiredError(branchRequired, nil)
+	}
+
+	var prepareRejected *trading.PrepareRejectedError
+	if errors.As(err, &prepareRejected) {
+		if message := strings.TrimSpace(prepareRejected.BrokerMessage); message != "" {
+			return fmt.Errorf("broker rejected order preparation before submission: %s", message)
+		}
+		return fmt.Errorf("broker rejected order preparation before submission; review balance, FX consent, or broker prompts in the app/web and retry from `tossctl order preview`")
+	}
+
 	var disabled *trading.DisabledActionError
 	if errors.As(err, &disabled) {
 		return fmt.Errorf("trading action `%s` is disabled; run `tossctl config init` if needed and update %s", disabled.Action, paths.ConfigFile)
@@ -67,4 +82,92 @@ func userFacingTradingError(paths config.Paths, err error) error {
 	}
 
 	return userFacingCommandError(err)
+}
+
+func userFacingPlaceError(paths config.Paths, err error, flags *placeFlags) error {
+	if err == nil {
+		return nil
+	}
+
+	var branchRequired *trading.BranchRequiredError
+	if errors.As(err, &branchRequired) {
+		return formatBranchRequiredError(branchRequired, flags)
+	}
+
+	var prepareRejected *trading.PrepareRejectedError
+	if errors.As(err, &prepareRejected) {
+		previewCommand := "tossctl order preview ..."
+		if flags != nil {
+			previewCommand = buildPlaceCommand("preview", flags, "")
+		}
+		if message := strings.TrimSpace(prepareRejected.BrokerMessage); message != "" {
+			return fmt.Errorf("broker rejected order preparation before submission: %s\n1. Toss app/web에서 잔액, 환전 동의, 또는 broker prompt를 확인합니다.\n2. 준비가 끝나면 `%s`를 다시 실행합니다.\n3. 새 confirm token으로 `tossctl order place ... --execute --dangerously-skip-permissions --confirm <new-confirm-token>`를 다시 실행합니다.", message, previewCommand)
+		}
+		return fmt.Errorf("broker rejected order preparation before submission.\n1. Toss app/web에서 잔액, 환전 동의, 또는 broker prompt를 확인합니다.\n2. 준비가 끝나면 `%s`를 다시 실행합니다.\n3. 새 confirm token으로 `tossctl order place ... --execute --dangerously-skip-permissions --confirm <new-confirm-token>`를 다시 실행합니다.", previewCommand)
+	}
+
+	return userFacingTradingError(paths, err)
+}
+
+func formatBranchRequiredError(branchRequired *trading.BranchRequiredError, flags *placeFlags) error {
+	if branchRequired == nil {
+		return fmt.Errorf("broker requires operator action")
+	}
+
+	previewCommand := "tossctl order preview ..."
+	placeCommand := "tossctl order place ... --execute --dangerously-skip-permissions --confirm <new-confirm-token>"
+	if flags != nil {
+		previewCommand = buildPlaceCommand("preview", flags, "")
+		placeCommand = buildPlaceCommand("place", flags, "<new-confirm-token>")
+	}
+
+	messageSuffix := ""
+	if message := strings.TrimSpace(branchRequired.BrokerMessage); message != "" {
+		messageSuffix = "\nBroker message: " + message
+	}
+
+	switch branchRequired.Branch {
+	case trading.BranchFundingRequired:
+		return fmt.Errorf("주문 준비 단계에서 잔액 또는 주문가능금액이 부족해 진행이 중단되었습니다.%s\n1. Toss 앱 또는 웹에서 주문가능금액을 채웁니다.\n2. 필요한 경우 원화 입금 또는 계좌 충전을 완료합니다.\n3. 완료 후 `%s`를 다시 실행해 새 confirm token을 받습니다.\nRetry: `%s`", messageSuffix, previewCommand, placeCommand)
+	case trading.BranchFXConsentRequired:
+		return fmt.Errorf("주문 준비 단계에서 환전 또는 외화 사용 동의가 필요해 진행이 중단되었습니다.%s\n1. Toss 앱 또는 웹에서 해당 미국주식 주문의 환전 또는 외화 사용 동의 화면으로 이동합니다.\n2. 환전 또는 외화 사용 동의를 완료합니다.\n3. 완료 후 `%s`를 다시 실행해 새 confirm token을 받습니다.\nRetry: `%s`", messageSuffix, previewCommand, placeCommand)
+	default:
+		if messageSuffix == "" {
+			messageSuffix = "\nBroker message: unavailable"
+		}
+		return fmt.Errorf("broker requires operator action before the order can continue.%s\n1. Toss 앱 또는 웹에서 필요한 안내를 완료합니다.\n2. 완료 후 `%s`를 다시 실행해 새 confirm token을 받습니다.\n3. 새 confirm token으로 `%s`를 다시 실행합니다.", messageSuffix, previewCommand, placeCommand)
+	}
+}
+
+func buildPlaceCommand(kind string, flags *placeFlags, confirm string) string {
+	if flags == nil {
+		if kind == "preview" {
+			return "tossctl order preview ..."
+		}
+		return "tossctl order place ... --execute --dangerously-skip-permissions --confirm " + confirm
+	}
+
+	args := []string{
+		"tossctl",
+		"order",
+		kind,
+		"--symbol", flags.symbol,
+		"--market", flags.market,
+		"--side", flags.side,
+		"--type", flags.orderType,
+		"--qty", formatCommandFloat(flags.quantity),
+		"--price", formatCommandFloat(flags.price),
+		"--currency-mode", flags.currencyMode,
+	}
+	if flags.fractional {
+		args = append(args, "--fractional")
+	}
+	if kind == "place" {
+		args = append(args, "--execute", "--dangerously-skip-permissions", "--confirm", confirm)
+	}
+	return strings.Join(args, " ")
+}
+
+func formatCommandFloat(value float64) string {
+	return strconv.FormatFloat(value, 'f', -1, 64)
 }

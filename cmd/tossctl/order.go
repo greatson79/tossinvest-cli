@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/junghoonkye/tossinvest-cli/internal/domain"
-	"github.com/junghoonkye/tossinvest-cli/internal/orderlineage"
 	"github.com/junghoonkye/tossinvest-cli/internal/orderintent"
+	"github.com/junghoonkye/tossinvest-cli/internal/orderlineage"
 	"github.com/junghoonkye/tossinvest-cli/internal/output"
 	"github.com/junghoonkye/tossinvest-cli/internal/trading"
 	"github.com/spf13/cobra"
@@ -174,7 +174,7 @@ func newOrderPlaceCmd(opts *rootOptions) *cobra.Command {
 				Confirm:                    exec.confirm,
 			})
 			if err != nil {
-				return userFacingTradingError(app.paths, err)
+				return userFacingPlaceError(app.paths, err, place)
 			}
 			recordMutationLineage(app, &result)
 

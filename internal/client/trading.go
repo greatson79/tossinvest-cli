@@ -108,7 +108,7 @@ func (c *Client) PlacePendingOrder(ctx context.Context, intent orderintent.Place
 
 	var prepare mutationEnvelope[cancelPrepareResult]
 	if err := c.postTradingJSON(ctx, fmt.Sprintf("%s/api/v2/wts/trading/order/prepare", c.certBaseURL), bodyPrepare, &prepare); err != nil {
-		return tradingflow.MutationResult{}, err
+		return tradingflow.MutationResult{}, classifyPlacePrepareFailure(err)
 	}
 	if prepare.Result.AuthRequired.Required {
 		return tradingflow.MutationResult{}, tradingflow.ErrInteractiveAuthRequired
@@ -168,6 +168,184 @@ func (c *Client) GetOrderAvailableActions(ctx context.Context, orderID string) (
 		return nil, err
 	}
 	return result, nil
+}
+
+func classifyPlacePrepareFailure(err error) error {
+	var statusErr *StatusError
+	if !errors.As(err, &statusErr) {
+		return err
+	}
+
+	message := extractBrokerMessage(statusErr.Body)
+	switch classifyPrepareBranch(statusErr.Body, message) {
+	case tradingflow.BranchFundingRequired:
+		return &tradingflow.BranchRequiredError{
+			Branch:        tradingflow.BranchFundingRequired,
+			StatusCode:    statusErr.StatusCode,
+			BrokerMessage: message,
+		}
+	case tradingflow.BranchFXConsentRequired:
+		return &tradingflow.BranchRequiredError{
+			Branch:        tradingflow.BranchFXConsentRequired,
+			StatusCode:    statusErr.StatusCode,
+			BrokerMessage: message,
+		}
+	default:
+		return &tradingflow.PrepareRejectedError{
+			StatusCode:    statusErr.StatusCode,
+			BrokerMessage: message,
+		}
+	}
+}
+
+func classifyPrepareBranch(body string, message string) tradingflow.Branch {
+	signals := strings.ToLower(strings.Join(append(extractJSONStrings(body), message), "\n"))
+
+	if containsAny(signals,
+		"계좌 잔액이 부족",
+		"잔액이 부족",
+		"주문가능금액",
+		"구매를 위해",
+		"채울게요",
+		"모바일에서 채우기",
+		"insufficient balance",
+		"insufficient buying power",
+	) {
+		return tradingflow.BranchFundingRequired
+	}
+
+	hasFXKeyword := containsAny(signals,
+		"환전",
+		"외화 사용",
+		"fx",
+		"foreign exchange",
+		"conversion",
+		"convert",
+	)
+	hasConsentKeyword := containsAny(signals,
+		"동의",
+		"승인",
+		"확인",
+		"consent",
+		"approve",
+		"agreement",
+	)
+	if hasFXKeyword && hasConsentKeyword {
+		return tradingflow.BranchFXConsentRequired
+	}
+
+	return ""
+}
+
+func extractBrokerMessage(body string) string {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+
+	preferred := collectJSONStringsForKeys(body, map[string]struct{}{
+		"title":       {},
+		"message":     {},
+		"body":        {},
+		"description": {},
+		"error":       {},
+		"detail":      {},
+	})
+	if len(preferred) > 0 {
+		return strings.Join(uniqueNonEmptyStrings(preferred), " / ")
+	}
+
+	all := uniqueNonEmptyStrings(extractJSONStrings(body))
+	if len(all) == 0 {
+		return body
+	}
+	limit := len(all)
+	if limit > 3 {
+		limit = 3
+	}
+	return strings.Join(all[:limit], " / ")
+}
+
+func collectJSONStringsForKeys(body string, keys map[string]struct{}) []string {
+	var payload any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return nil
+	}
+	values := []string{}
+	var visit func(any)
+	visit = func(node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			for key, value := range typed {
+				if _, ok := keys[strings.ToLower(strings.TrimSpace(key))]; ok {
+					if text, ok := value.(string); ok {
+						values = append(values, text)
+					}
+				}
+				visit(value)
+			}
+		case []any:
+			for _, value := range typed {
+				visit(value)
+			}
+		}
+	}
+	visit(payload)
+	return values
+}
+
+func extractJSONStrings(body string) []string {
+	var payload any
+	if err := json.Unmarshal([]byte(body), &payload); err != nil {
+		return nil
+	}
+	values := []string{}
+	var visit func(any)
+	visit = func(node any) {
+		switch typed := node.(type) {
+		case map[string]any:
+			for _, value := range typed {
+				visit(value)
+			}
+		case []any:
+			for _, value := range typed {
+				visit(value)
+			}
+		case string:
+			values = append(values, typed)
+		}
+	}
+	visit(payload)
+	return values
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	unique := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		unique = append(unique, value)
+	}
+	return unique
+}
+
+func containsAny(haystack string, needles ...string) bool {
+	for _, needle := range needles {
+		if needle == "" {
+			continue
+		}
+		if strings.Contains(haystack, strings.ToLower(needle)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Client) CancelPendingOrder(ctx context.Context, intent orderintent.CancelIntent) (tradingflow.MutationResult, error) {
@@ -349,7 +527,7 @@ func (c *Client) postJSONBytes(ctx context.Context, endpoint string, body []byte
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, newStatusError(resp.StatusCode, endpoint)
+		return nil, newStatusError(resp.StatusCode, endpoint, data)
 	}
 	return data, nil
 }

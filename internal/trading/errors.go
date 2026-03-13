@@ -1,6 +1,10 @@
 package trading
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 var (
 	ErrExecuteRequired          = errors.New("live trading requires --execute")
@@ -13,6 +17,47 @@ var (
 	ErrCancelStillPending       = errors.New("pending order still present after cancel reconciliation")
 	ErrInteractiveAuthRequired  = errors.New("broker requires interactive trade authentication")
 )
+
+type Branch string
+
+const (
+	BranchFundingRequired   Branch = "funding_required"
+	BranchFXConsentRequired Branch = "fx_consent_required"
+)
+
+type BranchRequiredError struct {
+	Branch        Branch
+	StatusCode    int
+	BrokerMessage string
+}
+
+func (e *BranchRequiredError) Error() string {
+	if e == nil {
+		return "broker requires operator action"
+	}
+	if message := strings.TrimSpace(e.BrokerMessage); message != "" {
+		return fmt.Sprintf("broker requires %s: %s", e.Branch, message)
+	}
+	return fmt.Sprintf("broker requires %s", e.Branch)
+}
+
+type PrepareRejectedError struct {
+	StatusCode    int
+	BrokerMessage string
+}
+
+func (e *PrepareRejectedError) Error() string {
+	if e == nil {
+		return "broker rejected order prepare"
+	}
+	if message := strings.TrimSpace(e.BrokerMessage); message != "" {
+		return fmt.Sprintf("broker rejected order prepare (%d): %s", e.StatusCode, message)
+	}
+	if e.StatusCode != 0 {
+		return fmt.Sprintf("broker rejected order prepare (%d)", e.StatusCode)
+	}
+	return "broker rejected order prepare"
+}
 
 type Action string
 

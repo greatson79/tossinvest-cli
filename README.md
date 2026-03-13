@@ -156,6 +156,7 @@ tossctl config show
 - `orders completed`
 - `order show <id>`
 - local lineage fallback for `order show <old-id>` after same-machine `cancel` or `amend` rollover
+- step-by-step operator guidance when `order place` is blocked by funding or FX-consent branches
 
 ### 아직 더 필요한 것
 
@@ -320,7 +321,7 @@ make test
 토스증권 조회를 스크립트에 넣고 싶거나, 주문 전 확인과 제한된 주문 흐름을 CLI로 다루고 싶은 사용자에게 맞습니다.
 
 **바로 주문까지 가능한가요?**  
-일부 범위만 베타로 지원합니다. 현재 live 검증이 끝난 건 `US buy limit / KRW / non-fractional` 기준의 `place`, 당일 pending `cancel`, 그리고 `orders completed` / `order show <id>` 기반 상태 조회입니다. `cancel`과 `amend` 후 ref rollover는 same-machine local lineage cache로 다시 찾을 수 있고, delayed cancel rollover도 `order show <old-id>`가 later completed-history lookup으로 복구할 수 있습니다. 다만 ambiguous candidate가 생기면 수동 확인이 필요합니다. `amend` 자체는 아직 더 많은 live 검증이 필요합니다. 거래 기능은 먼저 `config.json`에서 해당 액션을 직접 허용해야 합니다.
+일부 범위만 베타로 지원합니다. 현재 live 검증이 끝난 건 `US buy limit / KRW / non-fractional` 기준의 `place`, 당일 pending `cancel`, 그리고 `orders completed` / `order show <id>` 기반 상태 조회입니다. `cancel`과 `amend` 후 ref rollover는 same-machine local lineage cache로 다시 찾을 수 있고, delayed cancel rollover도 `order show <old-id>`가 later completed-history lookup으로 복구할 수 있습니다. 다만 ambiguous candidate가 생기면 수동 확인이 필요합니다. `order place`가 funding 또는 FX-consent 분기에 막히면 CLI가 단계별 행동과 재시도 명령을 안내하지만, 아직 자동 진행은 하지 않습니다. `amend` 자체는 아직 더 많은 live 검증이 필요합니다. 거래 기능은 먼저 `config.json`에서 해당 액션을 직접 허용해야 합니다.
 
 **공식 API인가요?**  
 아닙니다. 토스증권 공식 제품이 아니고, 웹 내부 API를 재사용하는 비공식 프로젝트입니다.

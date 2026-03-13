@@ -85,14 +85,16 @@ Observed UI rejection:
   - `닫기`
   - `모바일에서 채우기`
 
-Expected normalized class:
+Expected normalized classes:
 
 - `insufficient_buying_power`
+- `funding_required`
 
 CLI implication:
 
 - `order preview` can remain local or calculator-backed
 - `order place` must treat `prepare` failures as broker-side rejections and surface the user-facing amount gap when available
+- when the broker rejection clearly indicates balance top-up, the CLI should present step-by-step funding guidance and a retry command template
 - successful submit logic must start only after `prepare` succeeds
 - some retries may depend on user-driven funding and FX approval outside the immediate order form
 
@@ -126,6 +128,7 @@ CLI implication:
 - success cannot be inferred from `pending` alone
 - reconciliation must check completed history in addition to pending state
 - a production trading client will likely need to classify `funding_required` and `fx_consent_required` separately from plain `insufficient_buying_power`
+- when FX approval is the explicit blocker, the CLI should present step-by-step FX-consent guidance and ask the operator to rerun preview/place after approval
 - the normalized success model needs at least:
   - `accepted_pending`
   - `filled_immediately`

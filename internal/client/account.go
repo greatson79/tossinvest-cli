@@ -3,6 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -279,11 +280,15 @@ func (c *Client) getJSON(ctx context.Context, endpoint string, target any) error
 	}
 	defer resp.Body.Close()
 
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return newStatusError(resp.StatusCode, endpoint)
+		return newStatusError(resp.StatusCode, endpoint, data)
 	}
 
-	return json.NewDecoder(resp.Body).Decode(target)
+	return json.Unmarshal(data, target)
 }
 
 func (c *Client) ValidateSession(ctx context.Context) error {

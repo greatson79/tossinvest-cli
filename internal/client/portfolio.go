@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 
 	"github.com/junghoonkye/tossinvest-cli/internal/domain"
@@ -129,11 +130,15 @@ func (c *Client) postJSON(ctx context.Context, endpoint string, body json.RawMes
 	}
 	defer resp.Body.Close()
 
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return newStatusError(resp.StatusCode, endpoint)
+		return newStatusError(resp.StatusCode, endpoint, data)
 	}
 
-	return json.NewDecoder(resp.Body).Decode(target)
+	return json.Unmarshal(data, target)
 }
 
 func httpNewRequestWithBody(ctx context.Context, endpoint string, body []byte) (*http.Request, error) {
