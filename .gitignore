@@ -5,6 +5,9 @@
 /tossctl
 /output/
 /.playwright-cli/
+/.claude/
+/.superset/
+**/.DS_Store
 
 /.env
 /.env.*
