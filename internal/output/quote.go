@@ -123,12 +123,12 @@ func WriteQuotes(w io.Writer, format Format, quotes []domain.Quote) error {
 		return writer.Error()
 	case FormatTable:
 		for _, q := range quotes {
-			sign := ""
+			changeStr := fmt.Sprintf("%.2f", q.Change)
 			if q.Change > 0 {
-				sign = "+"
+				changeStr = "+" + changeStr
 			}
-			if _, err := fmt.Fprintf(w, "%-8s %-20s %12s %s%s (%.2f%%)\n",
-				q.Symbol, q.Name, formatFloat(q.Last), sign, formatFloat(q.Change), q.ChangeRate*100,
+			if _, err := fmt.Fprintf(w, "%-8s %-20s %12s %s (%.2f%%)\n",
+				q.Symbol, q.Name, formatFloat(q.Last), changeStr, q.ChangeRate*100,
 			); err != nil {
 				return err
 			}
