@@ -246,7 +246,7 @@ sequenceDiagram
 
 - `amend`의 추가 live 검증
 - `place`와 `amend`의 상태 판별 추가 검증
-- `sell`, `market`, `KR`, `fractional` 확장
+- 비소수점 시장가 주문 (US/KR)
 - interactive auth challenge가 필요한 mutation 분기 일반화
 
 ## Related Docs
