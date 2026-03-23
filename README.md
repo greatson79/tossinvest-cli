@@ -58,31 +58,11 @@
 
 ### For Human
 
-#### macOS / Linux (한 줄 설치)
-
 ```bash
+# macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/JungHoonGhae/tossinvest-cli/main/install.sh | sh
-```
 
-OS와 아키텍처를 자동 감지하고, 체크섬 검증 후 `/usr/local/bin`에 설치합니다.
-
-#### macOS (Homebrew)
-
-```bash
-brew tap JungHoonGhae/tossinvest-cli
-brew install tossctl
-```
-
-#### Windows (PowerShell)
-
-```powershell
-Invoke-WebRequest -Uri https://github.com/JungHoonGhae/tossinvest-cli/releases/latest/download/tossctl-windows-amd64.zip -OutFile tossctl.zip
-Expand-Archive tossctl.zip -DestinationPath .
-```
-
-#### 설치 확인 및 로그인
-
-```bash
+# 설치 확인
 tossctl version
 tossctl doctor
 tossctl auth login
@@ -96,11 +76,13 @@ python3 -m pip install playwright
 python3 -m playwright install chromium
 ```
 
+> Windows, Homebrew, 소스 빌드 등 다른 설치 방법은 [설치](#설치) 섹션을 참고하세요.
+
 ### For Agent
 
 ```text
-Install tossinvest-cli: Homebrew (macOS), GitHub Releases (Linux/Windows).
-Run `tossctl doctor` and `tossctl auth doctor`, complete browser login with
+Install tossinvest-cli: `curl -fsSL .../install.sh | sh` (macOS/Linux) or
+GitHub Releases (Windows). Run `tossctl doctor`, complete browser login with
 `tossctl auth login`, then use read-only commands first.
 Trading actions stay disabled until config.json explicitly allows them.
 Only use `tossctl order preview` before any trading mutation.
@@ -254,7 +236,21 @@ tossctl quote batch TSLL 005930 GOOG VOO --output table
 
 ## 설치
 
-플랫폼별 설치 방법은 [Quick Start](#quick-start)를 참고하세요. 지원 플랫폼: macOS (arm64/amd64), Linux (amd64/arm64), Windows (amd64).
+지원 플랫폼: macOS (arm64/amd64), Linux (amd64/arm64), Windows (amd64).
+
+### Homebrew (macOS)
+
+```bash
+brew tap JungHoonGhae/tossinvest-cli
+brew install tossctl
+```
+
+### Windows (PowerShell)
+
+```powershell
+Invoke-WebRequest -Uri https://github.com/JungHoonGhae/tossinvest-cli/releases/latest/download/tossctl-windows-amd64.zip -OutFile tossctl.zip
+Expand-Archive tossctl.zip -DestinationPath .
+```
 
 ### From source
 
