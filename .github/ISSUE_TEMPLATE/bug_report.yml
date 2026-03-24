@@ -30,8 +30,8 @@ body:
     id: version
     attributes:
       label: tossctl version
-      description: "`tossctl version` 출력값"
-      placeholder: "0.3.2"
+      description: "`tossctl version` 전체 출력을 붙여넣어 주세요."
+      placeholder: "tossctl 0.3.3 commit: ... date: ... os/arch: ..."
     validations:
       required: true
   - type: dropdown
@@ -42,5 +42,16 @@ body:
         - macOS
         - Linux
         - Windows
+    validations:
+      required: true
+  - type: dropdown
+    id: install_method
+    attributes:
+      label: 설치 방법
+      options:
+        - "curl | sh (설치 스크립트)"
+        - Homebrew
+        - GitHub Releases (수동 다운로드)
+        - From source (make build)
     validations:
       required: true
