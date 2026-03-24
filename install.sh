@@ -4,6 +4,7 @@ set -e
 REPO="JungHoonGhae/tossinvest-cli"
 BINARY="tossctl"
 INSTALL_DIR="/usr/local/bin"
+SHARE_DIR="/usr/local/share/tossctl"
 
 main() {
     os=$(detect_os)
@@ -38,13 +39,25 @@ main() {
     echo "Installing to ${INSTALL_DIR}..."
     if [ -w "$INSTALL_DIR" ]; then
         mv "${tmpdir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+        chmod +x "${INSTALL_DIR}/${BINARY}"
+        mkdir -p "${SHARE_DIR}"
+        if [ -d "${tmpdir}/auth-helper" ]; then
+            rm -rf "${SHARE_DIR}/auth-helper"
+            mv "${tmpdir}/auth-helper" "${SHARE_DIR}/auth-helper"
+        fi
     else
         sudo mv "${tmpdir}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
+        sudo chmod +x "${INSTALL_DIR}/${BINARY}"
+        sudo mkdir -p "${SHARE_DIR}"
+        if [ -d "${tmpdir}/auth-helper" ]; then
+            sudo rm -rf "${SHARE_DIR}/auth-helper"
+            sudo mv "${tmpdir}/auth-helper" "${SHARE_DIR}/auth-helper"
+        fi
     fi
-    chmod +x "${INSTALL_DIR}/${BINARY}"
 
     echo ""
     echo "Installed $(${INSTALL_DIR}/${BINARY} version 2>/dev/null || echo "${BINARY}") to ${INSTALL_DIR}/${BINARY}"
+    echo "Auth helper installed to ${SHARE_DIR}/auth-helper"
     echo ""
     echo "Next steps:"
     echo "  tossctl doctor"
