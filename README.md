@@ -95,7 +95,7 @@ Only use `tossctl order preview` before any trading mutation.
 | 기능 | 커맨드 | US | KR |
 |------|--------|:--:|:--:|
 | 계좌 목록 / 요약 | `account list`, `account summary` | O | O |
-| 포트폴리오 | `portfolio positions`, `portfolio allocation` | O | O |
+| 포트폴리오 | `portfolio positions`, `portfolio allocation` (US: USD 병기) | O | O |
 | 시세 | `quote get <symbol>`, `quote batch <sym> [sym...]` | O | O |
 | 미체결 주문 | `orders list` | O | O |
 | 체결 내역 | `orders completed --market us\|kr\|all` | O | O |

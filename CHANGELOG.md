@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.3] - 2026-03-24
+
+### Added
+- **USD 표시** — US 포지션에 매입가/현재가/평가금/손익을 USD로 병기 (by @seilk, PR #11)
+- **설치 스크립트** — `curl -fsSL .../install.sh | sh` 한 줄 설치 (macOS/Linux)
+- Issue/PR 템플릿, GitHub Sponsors 지원
+
+### Fixed
+- install.sh가 auth-helper를 누락하여 Linux에서 `auth login` 실패하던 문제 (Fixes #12)
+
 ## [0.3.2] - 2026-03-23
 
 ### Added
