@@ -94,14 +94,17 @@ func TestWritePositionsTable(t *testing.T) {
 	if !strings.Contains(output, "TSLL") {
 		t.Fatalf("expected TSLL in table output")
 	}
-	if !strings.Contains(output, "last_usd=") {
-		t.Fatalf("expected USD fields for US_STOCK in table output")
+	if !strings.Contains(output, "USD") {
+		t.Fatalf("expected USD column header for US_STOCK in table output")
 	}
-	// KR_STOCK should not have USD fields
+	if !strings.Contains(output, "$") {
+		t.Fatalf("expected USD values for US_STOCK in table output")
+	}
+	// KR_STOCK should not have USD values
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	for _, line := range lines {
-		if strings.Contains(line, "삼성전자") && strings.Contains(line, "last_usd=") {
-			t.Fatalf("KR_STOCK should not have USD fields, got %s", line)
+		if strings.Contains(line, "삼성전자") && strings.Contains(line, "$") {
+			t.Fatalf("KR_STOCK should not have USD values, got %s", line)
 		}
 	}
 }

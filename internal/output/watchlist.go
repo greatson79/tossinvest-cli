@@ -35,21 +35,19 @@ func WriteWatchlist(w io.Writer, format Format, items []domain.WatchlistItem) er
 		writer.Flush()
 		return writer.Error()
 	case FormatTable:
+		headers := []string{"그룹", "종목", "이름", "기준가", "현재가", "통화"}
+		var rows [][]string
 		for _, item := range items {
-			if _, err := fmt.Fprintf(
-				w,
-				"- [%s] %s %s base=%s last=%s %s\n",
+			rows = append(rows, []string{
 				item.Group,
 				item.Symbol,
 				item.Name,
-				formatFloat(item.Base),
-				formatFloat(item.Last),
+				formatKRW(item.Base),
+				formatKRW(item.Last),
 				item.Currency,
-			); err != nil {
-				return err
-			}
+			})
 		}
-		return nil
+		return renderTable(w, headers, rows)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}

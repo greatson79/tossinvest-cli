@@ -122,18 +122,22 @@ func WriteQuotes(w io.Writer, format Format, quotes []domain.Quote) error {
 		writer.Flush()
 		return writer.Error()
 	case FormatTable:
+		headers := []string{"종목", "이름", "현재가", "변동", "변동률"}
+		var rows [][]string
 		for _, q := range quotes {
-			changeStr := fmt.Sprintf("%.2f", q.Change)
+			changeStr := formatKRW(q.Change)
 			if q.Change > 0 {
 				changeStr = "+" + changeStr
 			}
-			if _, err := fmt.Fprintf(w, "%-8s %-20s %12s %s (%.2f%%)\n",
-				q.Symbol, q.Name, formatFloat(q.Last), changeStr, q.ChangeRate*100,
-			); err != nil {
-				return err
-			}
+			rows = append(rows, []string{
+				q.Symbol,
+				q.Name,
+				formatKRW(q.Last),
+				changeStr,
+				formatPct(q.ChangeRate),
+			})
 		}
-		return nil
+		return renderTable(w, headers, rows)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}

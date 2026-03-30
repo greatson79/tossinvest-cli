@@ -50,43 +50,7 @@ func WritePositions(w io.Writer, format Format, positions []domain.Position) err
 		writer.Flush()
 		return writer.Error()
 	case FormatTable:
-		for _, position := range positions {
-			if _, err := fmt.Fprintf(
-				w,
-				"- %s (%s) qty=%s avg=%s last=%s value=%s pnl=%s rate=%.2f%% day_pnl=%s day_rate=%.2f%%",
-				position.Name,
-				position.Symbol,
-				formatFloat(position.Quantity),
-				formatFloat(position.AveragePrice),
-				formatFloat(position.CurrentPrice),
-				formatFloat(position.MarketValue),
-				formatFloat(position.UnrealizedPnL),
-				position.ProfitRate*100,
-				formatFloat(position.DailyProfitLoss),
-				position.DailyProfitRate*100,
-			); err != nil {
-				return err
-			}
-			if position.MarketType == "US_STOCK" {
-				if _, err := fmt.Fprintf(
-					w,
-					" avg_usd=%s last_usd=%s value_usd=%s pnl_usd=%s rate_usd=%.2f%% day_pnl_usd=%s day_rate_usd=%.2f%%",
-					formatFloat(position.AveragePriceUSD),
-					formatFloat(position.CurrentPriceUSD),
-					formatFloat(position.MarketValueUSD),
-					formatFloat(position.UnrealizedPnLUSD),
-					position.ProfitRateUSD*100,
-					formatFloat(position.DailyProfitLossUSD),
-					position.DailyProfitRateUSD*100,
-				); err != nil {
-					return err
-				}
-			}
-			if _, err := fmt.Fprint(w, "\n"); err != nil {
-				return err
-			}
-		}
-		return nil
+		return writePositionsTable(w, positions)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
@@ -138,6 +102,47 @@ func WriteAllocation(w io.Writer, format Format, markets map[string]domain.Accou
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
+}
+
+func writePositionsTable(w io.Writer, positions []domain.Position) error {
+	hasUS := false
+	for _, p := range positions {
+		if p.MarketType == "US_STOCK" {
+			hasUS = true
+			break
+		}
+	}
+
+	headers := []string{"종목", "수량", "매입가", "현재가", "평가금", "손익", "수익률", "일간손익", "일간률"}
+	if hasUS {
+		headers = append(headers, "USD 손익", "USD 률")
+	}
+
+	var rows [][]string
+	for _, p := range positions {
+		label := fmt.Sprintf("%s (%s)", truncateName(p.Name, 16), p.Symbol)
+		row := []string{
+			label,
+			formatQty(p.Quantity),
+			formatKRW(p.AveragePrice),
+			formatKRW(p.CurrentPrice),
+			formatKRW(p.MarketValue),
+			formatKRW(p.UnrealizedPnL),
+			formatPct(p.ProfitRate),
+			formatKRW(p.DailyProfitLoss),
+			formatPct(p.DailyProfitRate),
+		}
+		if hasUS {
+			if p.MarketType == "US_STOCK" {
+				row = append(row, formatUSD(p.UnrealizedPnLUSD), formatPct(p.ProfitRateUSD))
+			} else {
+				row = append(row, "", "")
+			}
+		}
+		rows = append(rows, row)
+	}
+
+	return renderTable(w, headers, rows)
 }
 
 func sortedMarketKeys(markets map[string]domain.AccountMarketSummary) []string {

@@ -152,22 +152,20 @@ func writeOrderList(w io.Writer, format Format, title, emptyMessage string, orde
 		if _, err := fmt.Fprintf(w, "%s: %d\n", title, len(orders)); err != nil {
 			return err
 		}
+		headers := []string{"종목", "매매", "상태", "수량", "체결", "가격", "주문ID"}
+		var rows [][]string
 		for _, order := range orders {
-			if _, err := fmt.Fprintf(
-				w,
-				"- %s %s %s qty=%s filled=%s price=%s id=%s\n",
+			rows = append(rows, []string{
 				order.Symbol,
 				order.Side,
 				order.Status,
-				strconv.FormatFloat(order.Quantity, 'f', -1, 64),
-				strconv.FormatFloat(order.FilledQuantity, 'f', -1, 64),
-				strconv.FormatFloat(order.Price, 'f', -1, 64),
+				formatQty(order.Quantity),
+				formatQty(order.FilledQuantity),
+				formatKRW(order.Price),
 				order.ID,
-			); err != nil {
-				return err
-			}
+			})
 		}
-		return nil
+		return renderTable(w, headers, rows)
 	default:
 		return fmt.Errorf("unsupported output format: %s", format)
 	}
