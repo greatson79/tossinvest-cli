@@ -69,13 +69,7 @@ tossctl auth login
 tossctl account summary --output json
 ```
 
-`auth login`은 Playwright + Google Chrome 기반 브라우저 로그인이 필요합니다.
-
-```bash
-python3 -m pip install playwright
-```
-
-> Google Chrome이 시스템에 설치되어 있어야 합니다.
+`auth login`은 Playwright와 Google Chrome이 필요합니다: `python3 -m pip install playwright`
 
 > Windows, Homebrew, 소스 빌드 등 다른 설치 방법은 [설치](#설치) 섹션을 참고하세요.
 
